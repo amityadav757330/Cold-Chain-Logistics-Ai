@@ -17,3 +17,6 @@ Thumbs.db
 
 # Data/cache
 data/cache/
+
+# Large dataset
+data/raw/*.csv
