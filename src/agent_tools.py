@@ -1,13 +1,20 @@
+import os
 import re
+
 import pyodbc
+from dotenv import load_dotenv
 from langchain_core.tools import tool
+
+
+load_dotenv()
 
 
 CONNECTION_STRING = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
-    "SERVER=localhost;"
-    "DATABASE=ColdChainLogistics;"
-    "Trusted_Connection=yes;"
+    f"SERVER={os.getenv('FDE_DB_SERVER')};"
+    f"DATABASE={os.getenv('FDE_DB_NAME')};"
+    f"UID={os.getenv('FDE_DB_USER')};"
+    f"PWD={os.getenv('FDE_DB_PASSWORD')};"
     "TrustServerCertificate=yes;"
 )
 
@@ -18,16 +25,25 @@ def query_telemetry_db(sql_query: str) -> str:
     Query the secure fleet telemetry view.
 
     Only SELECT queries against FDE_VIEWS.VW_ACTIVE_FLEET are allowed.
-    A maximum of 10 rows is returned.
+    SQL Server syntax must be used.
+    Maximum 10 rows can be returned.
     """
 
     query = sql_query.strip()
+
+    # Remove markdown code fences if the model sends them
+    query = re.sub(r"^```sql\s*", "", query, flags=re.IGNORECASE)
+    query = re.sub(r"^```\s*", "", query)
+    query = re.sub(r"\s*```$", "", query)
+    query = query.strip()
 
     # Only SELECT statements are allowed
     if not re.match(r"^SELECT\b", query, re.IGNORECASE):
         return "ERROR: Only SELECT queries are allowed."
 
-    # Block SQL statements that could modify the database
+    upper_query = query.upper()
+
+    # Block database modification operations
     blocked = [
         "INSERT",
         "UPDATE",
@@ -41,25 +57,30 @@ def query_telemetry_db(sql_query: str) -> str:
         "MERGE",
     ]
 
-    upper_query = query.upper()
-
     for keyword in blocked:
         if re.search(rf"\b{keyword}\b", upper_query):
             return f"ERROR: SQL operation '{keyword}' is not allowed."
 
-    # Only allow the secure telemetry view
-    if "VW_ACTIVE_FLEET" not in upper_query:
+    # Only allow the secure view
+    if "FDE_VIEWS.VW_ACTIVE_FLEET" not in upper_query:
         return "ERROR: Query must use FDE_VIEWS.VW_ACTIVE_FLEET."
 
-    # Prevent direct access to the raw table
+    # Prevent direct access to raw table
     if "TBL_SC_FLEET_HIST_RAW" in upper_query:
         return "ERROR: Direct access to the raw fleet table is not allowed."
 
-    # Add TOP 10 if the query doesn't already contain TOP
-    if not re.search(r"\bTOP\s+\d+", query, re.IGNORECASE):
+    # SQL Server does not support LIMIT
+    if re.search(r"\bLIMIT\b", upper_query):
+        return "ERROR: SQL Server does not support LIMIT. Use TOP instead."
+
+    # Remove trailing semicolon
+    query = query.rstrip(";").strip()
+
+    # Add TOP 10 if the model did not specify a limit
+    if not re.search(r"\bTOP\s+\d+\b", query, re.IGNORECASE):
         query = re.sub(
-            r"^SELECT\b",
-            "SELECT TOP 10",
+            r"^SELECT\s+",
+            "SELECT TOP 10 ",
             query,
             count=1,
             flags=re.IGNORECASE,
