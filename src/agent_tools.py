@@ -2,6 +2,7 @@ import os
 import re
 
 import pyodbc
+import requests
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 
@@ -115,3 +116,57 @@ def query_telemetry_db(sql_query: str) -> str:
 
     except Exception as e:
         return f"Database query error: {str(e)}"
+
+
+@tool
+def fetch_corridor_conditions(latitude: float, longitude: float) -> str:
+    """
+    Fetch current weather conditions for a logistics corridor.
+
+    Uses Open-Meteo and calculates a simple disruption index
+    based on current wind speed.
+    """
+
+    url = "https://api.open-meteo.com/v1/forecast"
+
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "current": "temperature_2m,wind_speed_10m",
+    }
+
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            timeout=10,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        current = data.get("current", {})
+
+        temperature = current.get("temperature_2m")
+        wind_speed = current.get("wind_speed_10m")
+
+        if temperature is None or wind_speed is None:
+            return "ERROR: Weather data is unavailable."
+
+        if wind_speed > 10:
+            disruption_index = 8.5
+        else:
+            disruption_index = 2.5
+
+        return (
+            f"Current temperature: {temperature}°C\n"
+            f"Wind speed: {wind_speed} km/h\n"
+            f"Disruption index: {disruption_index}"
+        )
+
+    except requests.RequestException as e:
+        return f"Weather API error: {str(e)}"
+
+    except Exception as e:
+        return f"Weather processing error: {str(e)}"

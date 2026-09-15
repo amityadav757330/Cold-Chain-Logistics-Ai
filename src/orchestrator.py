@@ -6,14 +6,20 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from typing_extensions import TypedDict
 
-from src.agent_tools import query_telemetry_db
+from src.agent_tools import (
+    query_telemetry_db,
+    fetch_corridor_conditions,
+)
 
 
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
-tools = [query_telemetry_db]
+tools = [
+    query_telemetry_db,
+    fetch_corridor_conditions,
+]
 
 
 def build_graph(llm):
@@ -21,13 +27,14 @@ def build_graph(llm):
     Build the Cold-Chain Logistics AI workflow.
 
     Flow:
+
         START
           ↓
        Reasoner
           ↓
       Tool needed?
        ↙       ↘
-     Tools      END
+    Tools       END
        ↓
      Reasoner
        ↓

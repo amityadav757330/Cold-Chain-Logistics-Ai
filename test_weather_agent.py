@@ -11,7 +11,8 @@ result = graph.invoke(
         "messages": [
             (
                 "user",
-                "Show me 3 fleet telemetry records from the secure telemetry view."
+                "Check the current weather conditions at latitude 40.375568 "
+                "and longitude -77.014318."
             )
         ]
     }
