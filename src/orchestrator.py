@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing_extensions import TypedDict
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 
 from src.agent_tools import (
@@ -20,6 +19,7 @@ class AgentState(TypedDict, total=False):
     analysis: str
     required_actions: str
     final_response: str
+    tool_trace: list[str]
 
 
 def load_system_prompt():
@@ -80,7 +80,10 @@ def telemetry_node(state: AgentState):
     )
 
     return {
-        "telemetry": telemetry
+        "telemetry": telemetry,
+        "tool_trace": [
+            "Telemetry database queried successfully"
+        ]
     }
 
 
@@ -88,14 +91,20 @@ def weather_node(state: AgentState):
 
     telemetry = state.get("telemetry", "")
 
+    previous_trace = state.get("tool_trace", [])
+
     vehicles = parse_telemetry(telemetry)
 
     if not vehicles:
+
         return {
             "weather": (
                 "Weather data unavailable because "
                 "telemetry data was not returned."
-            )
+            ),
+            "tool_trace": previous_trace + [
+                "Weather check skipped because telemetry was unavailable"
+            ]
         }
 
     weather_results = []
@@ -117,11 +126,16 @@ def weather_node(state: AgentState):
         )
 
     return {
-        "weather": "\n\n".join(weather_results)
+        "weather": "\n\n".join(weather_results),
+        "tool_trace": previous_trace + [
+            f"Weather conditions retrieved for {len(vehicles)} vehicle(s)"
+        ]
     }
 
 
 def sop_node(state: AgentState):
+
+    previous_trace = state.get("tool_trace", [])
 
     sop_query = """
     Retrieve the cold-chain compliance procedures relevant to:
@@ -145,7 +159,10 @@ def sop_node(state: AgentState):
     )
 
     return {
-        "sop": sop
+        "sop": sop,
+        "tool_trace": previous_trace + [
+            "Cold-chain compliance SOP searched successfully"
+        ]
     }
 
 
@@ -153,15 +170,21 @@ def analysis_node(state: AgentState):
 
     telemetry = state.get("telemetry", "")
 
+    previous_trace = state.get("tool_trace", [])
+
     vehicles = parse_telemetry(telemetry)
 
     if not vehicles:
+
         return {
             "analysis": "No valid telemetry records were available.",
             "required_actions": (
                 "No actions available because telemetry "
                 "was not returned."
-            )
+            ),
+            "tool_trace": previous_trace + [
+                "Risk analysis could not run because telemetry was unavailable"
+            ]
         }
 
     analysis_lines = []
@@ -256,7 +279,7 @@ Required Actions:
         )
 
         # ---------------------------------------------------------
-        # DETERMINISTIC REQUIRED ACTIONS
+        # REQUIRED ACTIONS
         # ---------------------------------------------------------
 
         action_lines.append(
@@ -272,6 +295,9 @@ Required Actions:
     return {
         "analysis": "\n".join(analysis_lines),
         "required_actions": "\n".join(action_lines),
+        "tool_trace": previous_trace + [
+            "Deterministic cold-chain risk analysis completed"
+        ]
     }
 
 
@@ -312,9 +338,11 @@ def build_deterministic_report(state: AgentState):
     for vehicle in vehicles:
 
         if vehicle["risk"] == "High Risk":
+
             high_risk_count += 1
 
         if vehicle["temperature"] > 4.0:
+
             temperature_breach_count += 1
 
         if (
@@ -325,6 +353,7 @@ def build_deterministic_report(state: AgentState):
             )
             or vehicle["temperature"] > 4.0
         ):
+
             action_vehicle_count += 1
 
     assessment_parts = []
@@ -355,7 +384,9 @@ def build_deterministic_report(state: AgentState):
             "No immediate SOP-triggered fleet actions were identified."
         )
 
-    operational_assessment = " ".join(assessment_parts)
+    operational_assessment = " ".join(
+        assessment_parts
+    )
 
     # -------------------------------------------------------------
     # FLEET RISK SUMMARY
@@ -365,7 +396,10 @@ def build_deterministic_report(state: AgentState):
 
     if vehicles:
 
-        for index, vehicle in enumerate(vehicles, start=1):
+        for index, vehicle in enumerate(
+            vehicles,
+            start=1
+        ):
 
             temperature = vehicle["temperature"]
 
@@ -403,7 +437,9 @@ def build_deterministic_report(state: AgentState):
             "No valid fleet telemetry records were available."
         )
 
-    fleet_summary = "\n\n".join(fleet_lines)
+    fleet_summary = "\n\n".join(
+        fleet_lines
+    )
 
     # -------------------------------------------------------------
     # WEATHER SECTION
@@ -448,14 +484,11 @@ def build_deterministic_report(state: AgentState):
 def reasoner_node(state: AgentState):
 
     # -------------------------------------------------------------
-    # IMPORTANT:
-    #
     # The critical operational report is generated deterministically.
     #
-    # We still initialize the LLM here so the architecture remains
-    # ready for future natural-language reasoning tasks.
+    # The LLM remains available for future natural-language
+    # reasoning tasks, but it is not allowed to modify:
     #
-    # The LLM is NOT allowed to modify:
     # - telemetry values
     # - risk classification
     # - temperature status
@@ -464,16 +497,23 @@ def reasoner_node(state: AgentState):
 
     _ = get_llm()
 
-    final_response = build_deterministic_report(state)
+    final_response = build_deterministic_report(
+        state
+    )
 
     return {
-        "final_response": final_response
+        "final_response": final_response,
+        "tool_trace": state.get("tool_trace", []) + [
+            "Operational report generated"
+        ]
     }
 
 
 def build_graph(llm=None):
 
-    graph_builder = StateGraph(AgentState)
+    graph_builder = StateGraph(
+        AgentState
+    )
 
     graph_builder.add_node(
         "telemetry",
