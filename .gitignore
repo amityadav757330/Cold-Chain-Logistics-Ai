@@ -2,9 +2,10 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 venv/
 
-# Environment variables / secrets
+# Environment variables
 .env
 .env.*
 

@@ -170,3 +170,52 @@ def fetch_corridor_conditions(latitude: float, longitude: float) -> str:
 
     except Exception as e:
         return f"Weather processing error: {str(e)}"
+
+
+@tool
+def search_compliance_sop(query: str) -> str:
+    """
+    Search the Cold-Chain Incident SOP stored in Pinecone.
+
+    Use this tool to retrieve compliance procedures
+    and mitigation rules.
+    """
+
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_pinecone import PineconeVectorStore
+
+        pinecone_index = os.getenv("PINECONE_INDEX")
+
+        if not pinecone_index:
+            return "ERROR: PINECONE_INDEX is not configured."
+
+        embeddings = HuggingFaceEmbeddings(
+            model_name="BAAI/bge-m3"
+        )
+
+        vectorstore = PineconeVectorStore(
+            index_name=pinecone_index,
+            embedding=embeddings
+        )
+
+        results = vectorstore.similarity_search(
+            query,
+            k=2
+        )
+
+        if not results:
+            return "No relevant SOP information was found."
+
+        output = []
+
+        for i, document in enumerate(results, start=1):
+            output.append(
+                f"--- SOP Result {i} ---\n"
+                f"{document.page_content}"
+            )
+
+        return "\n\n".join(output)
+
+    except Exception as e:
+        return f"SOP search error: {str(e)}"
