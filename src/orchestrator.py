@@ -1,35 +1,24 @@
-import os
-from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Optional
 from typing_extensions import TypedDict
+from uuid import uuid4
 
 import pyodbc
+
+from langchain_core.tools import BaseTool
 from langgraph.graph import StateGraph, START, END
 
 from src.agent_tools import (
     query_telemetry_db,
     fetch_corridor_conditions,
     search_compliance_sop,
+    CONNECTION_STRING,
 )
 
 
-# ============================================================
-# DATABASE CONNECTION
-# ============================================================
-
-CONNECTION_STRING = (
-    "DRIVER={ODBC Driver 18 for SQL Server};"
-    f"SERVER={os.getenv('FDE_DB_SERVER', 'localhost')};"
-    f"DATABASE={os.getenv('FDE_DB_NAME', 'ColdChainLogistics')};"
-    f"UID={os.getenv('FDE_DB_USER')};"
-    f"PWD={os.getenv('FDE_DB_PASSWORD')};"
-    "TrustServerCertificate=yes;"
-)
-
-
-# ============================================================
-# GRAPH STATE
-# ============================================================
+# =========================================================
+# STATE
+# =========================================================
 
 class AgentState(TypedDict, total=False):
     user_request: str
@@ -41,14 +30,38 @@ class AgentState(TypedDict, total=False):
 
     analysis: str
     required_actions: str
+
     final_response: str
 
-    execution_trace: list[dict[str, Any]]
+    telemetry_status: str
+    weather_status: str
+    sop_status: str
+    analysis_status: str
+    report_status: str
 
 
-# ============================================================
+# =========================================================
+# SYSTEM PROMPT
+# =========================================================
+
+def load_system_prompt():
+
+    prompt_path = (
+        Path(__file__).parent
+        / "prompts"
+        / "system_prompt.txt"
+    )
+
+    if not prompt_path.exists():
+        return ""
+
+    with open(prompt_path, "r", encoding="utf-8") as file:
+        return file.read()
+
+
+# =========================================================
 # AUDIT LOGGING
-# ============================================================
+# =========================================================
 
 def write_audit_log(
     session_id: str,
@@ -56,21 +69,10 @@ def write_audit_log(
     tool_name: str,
     content: str,
 ):
-    """
-    Write one audit record to FDE_VIEWS.AgentAuditLog.
-
-    The application uses the restricted USR_FDE_RO SQL login.
-    Audit failures are intentionally isolated so that an audit
-    problem does not prevent the operational report from being
-    generated.
-    """
 
     try:
 
-        conn = pyodbc.connect(
-            CONNECTION_STRING,
-            timeout=10
-        )
+        conn = pyodbc.connect(CONNECTION_STRING)
 
         cursor = conn.cursor()
 
@@ -88,7 +90,7 @@ def write_audit_log(
             session_id,
             node_executed,
             tool_name,
-            str(content)[:8000],
+            content,
         )
 
         conn.commit()
@@ -96,55 +98,16 @@ def write_audit_log(
         cursor.close()
         conn.close()
 
-        return True, "Audit log written successfully."
-
-    except Exception as e:
-
-        return False, f"Audit logging error: {str(e)}"
+    except Exception:
+        # Audit failure should not stop the operational workflow.
+        pass
 
 
-# ============================================================
-# EXECUTION TRACE
-# ============================================================
-
-def add_trace(
-    state: AgentState,
-    node: str,
-    tool: str,
-    status: str,
-    message: str,
-):
-    """
-    Add an execution event to the Streamlit trace.
-    """
-
-    trace = list(
-        state.get("execution_trace", [])
-    )
-
-    trace.append(
-        {
-            "timestamp": datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-            "node": node,
-            "tool": tool,
-            "status": status,
-            "message": message,
-        }
-    )
-
-    return trace
-
-
-# ============================================================
+# =========================================================
 # TELEMETRY PARSER
-# ============================================================
+# =========================================================
 
 def parse_telemetry(telemetry_text):
-    """
-    Convert the secure-view text result into Python dictionaries.
-    """
 
     if not telemetry_text:
         return []
@@ -163,6 +126,11 @@ def parse_telemetry(telemetry_text):
 
     for line in lines[1:]:
 
+        line = line.strip()
+
+        if not line:
+            continue
+
         values = [
             item.strip()
             for item in line.split(",")
@@ -179,12 +147,8 @@ def parse_telemetry(telemetry_text):
 
             vehicle = {
                 "timestamp": row["Timestamp"],
-                "latitude": float(
-                    row["Latitude"]
-                ),
-                "longitude": float(
-                    row["Longitude"]
-                ),
+                "latitude": float(row["Latitude"]),
+                "longitude": float(row["Longitude"]),
                 "temperature": float(
                     row["Current_Temperature_C"]
                 ),
@@ -217,122 +181,217 @@ def parse_telemetry(telemetry_text):
     return vehicles
 
 
-# ============================================================
+# =========================================================
+# QUERY BUILDER
+# =========================================================
+
+def build_telemetry_query(
+    user_request: str
+):
+
+    request = (
+        user_request
+        .lower()
+        .strip()
+    )
+
+    # -----------------------------------------------------
+    # HIGH RISK
+    # -----------------------------------------------------
+
+    if (
+        "high risk" in request
+        or "high-risk" in request
+    ):
+
+        return """
+            SELECT TOP 10 *
+            FROM FDE_VIEWS.VW_ACTIVE_FLEET
+            WHERE Risk_Classification = 'High Risk'
+        """
+
+    # -----------------------------------------------------
+    # TEMPERATURE BREACH
+    # -----------------------------------------------------
+
+    if (
+        "temperature breach" in request
+        or "temperature breaches" in request
+        or "cold-chain breach" in request
+        or "cold chain breach" in request
+        or "temperature above 4" in request
+        or "temperature over 4" in request
+        or "above 4" in request
+        or "over 4" in request
+    ):
+
+        return """
+            SELECT TOP 10 *
+            FROM FDE_VIEWS.VW_ACTIVE_FLEET
+            WHERE Current_Temperature_C > 4.0
+        """
+
+    # -----------------------------------------------------
+    # DELAY
+    # -----------------------------------------------------
+
+    if (
+        "delayed vehicles" in request
+        or "delayed vehicle" in request
+        or "delay probability" in request
+        or "high delay" in request
+        or "delay risk" in request
+    ):
+
+        return """
+            SELECT TOP 10 *
+            FROM FDE_VIEWS.VW_ACTIVE_FLEET
+            WHERE Delay_Probability > 0.65
+        """
+
+    # -----------------------------------------------------
+    # PORT CONGESTION
+    # -----------------------------------------------------
+
+    if (
+        "port congestion" in request
+        or "port congested" in request
+        or "congested port" in request
+        or "port risk" in request
+    ):
+
+        return """
+            SELECT TOP 10 *
+            FROM FDE_VIEWS.VW_ACTIVE_FLEET
+            WHERE Port_Congestion_Level > 7.0
+        """
+
+    # -----------------------------------------------------
+    # ROUTE RISK
+    # -----------------------------------------------------
+
+    if (
+        "route risk" in request
+        or "risky route" in request
+        or "high route risk" in request
+        or "route risk vehicles" in request
+    ):
+
+        return """
+            SELECT TOP 10 *
+            FROM FDE_VIEWS.VW_ACTIVE_FLEET
+            WHERE Route_Risk_Index > 7.0
+        """
+
+    # -----------------------------------------------------
+    # ACTION / INCIDENT QUERY
+    #
+    # We retrieve the fleet and let the deterministic
+    # analysis engine identify the required actions.
+    # -----------------------------------------------------
+
+    if (
+        "immediate action" in request
+        or "immediate actions" in request
+        or "required action" in request
+        or "required actions" in request
+        or "what should i do" in request
+        or "what should we do" in request
+        or "incident" in request
+        or "breach" in request
+        or "risk" in request
+    ):
+
+        return """
+            SELECT TOP 10 *
+            FROM FDE_VIEWS.VW_ACTIVE_FLEET
+        """
+
+    # -----------------------------------------------------
+    # DEFAULT
+    # -----------------------------------------------------
+
+    return """
+        SELECT TOP 10 *
+        FROM FDE_VIEWS.VW_ACTIVE_FLEET
+    """
+
+
+# =========================================================
 # TELEMETRY NODE
-# ============================================================
+# =========================================================
 
-def telemetry_node(state: AgentState):
+def telemetry_node(
+    state: AgentState
+):
+
+    user_request = state.get(
+        "user_request",
+        "Analyze the current fleet."
+    )
 
     session_id = state.get(
         "session_id",
-        "UNKNOWN"
+        str(uuid4())[:8]
     )
 
-    try:
+    sql_query = build_telemetry_query(
+        user_request
+    )
 
-        telemetry = query_telemetry_db.invoke(
-            {
-                "sql_query": """
-                    SELECT TOP 3 *
-                    FROM FDE_VIEWS.VW_ACTIVE_FLEET
-                """
-            }
-        )
-
-        vehicles = parse_telemetry(
-            telemetry
-        )
-
-        if vehicles:
-
-            message = (
-                f"Retrieved {len(vehicles)} "
-                f"fleet telemetry record(s)."
-            )
-
-            status = "SUCCESS"
-
-        else:
-
-            message = (
-                "Telemetry query completed, "
-                "but no valid records were returned."
-            )
-
-            status = "WARNING"
-
-        trace = add_trace(
-            state,
-            "telemetry",
-            "query_telemetry_db",
-            status,
-            message,
-        )
-
-        audit_ok, audit_message = write_audit_log(
-            session_id,
-            "telemetry",
-            "query_telemetry_db",
-            message,
-        )
-
-        trace = add_trace(
-            {
-                **state,
-                "execution_trace": trace,
-            },
-            "telemetry",
-            "AgentAuditLog",
-            "SUCCESS" if audit_ok else "WARNING",
-            audit_message,
-        )
-
-        return {
-            "telemetry": telemetry,
-            "execution_trace": trace,
+    telemetry = query_telemetry_db.invoke(
+        {
+            "sql_query": sql_query
         }
+    )
 
-    except Exception as e:
+    vehicles = parse_telemetry(
+        telemetry
+    )
 
-        message = (
-            f"Telemetry tool failed: {str(e)}"
+    if vehicles:
+
+        status = (
+            f"Retrieved {len(vehicles)} "
+            f"fleet telemetry record(s)."
         )
 
-        trace = add_trace(
-            state,
-            "telemetry",
-            "query_telemetry_db",
-            "ERROR",
-            message,
+    else:
+
+        status = (
+            "No matching fleet telemetry "
+            "records were found."
         )
 
-        write_audit_log(
-            session_id,
-            "telemetry",
-            "query_telemetry_db",
-            message,
-        )
+    write_audit_log(
+        session_id=session_id,
+        node_executed="telemetry",
+        tool_name="query_telemetry_db",
+        content=status,
+    )
 
-        return {
-            "telemetry": "",
-            "execution_trace": trace,
-        }
+    return {
+        "telemetry": telemetry,
+        "telemetry_status": status,
+    }
 
 
-# ============================================================
+# =========================================================
 # WEATHER NODE
-# ============================================================
+# =========================================================
 
-def weather_node(state: AgentState):
-
-    session_id = state.get(
-        "session_id",
-        "UNKNOWN"
-    )
+def weather_node(
+    state: AgentState
+):
 
     telemetry = state.get(
         "telemetry",
         ""
+    )
+
+    session_id = state.get(
+        "session_id",
+        str(uuid4())[:8]
     )
 
     vehicles = parse_telemetry(
@@ -341,50 +400,37 @@ def weather_node(state: AgentState):
 
     if not vehicles:
 
-        message = (
+        weather = (
             "Weather data unavailable because "
-            "telemetry data was not returned."
-        )
-
-        trace = add_trace(
-            state,
-            "weather",
-            "fetch_corridor_conditions",
-            "WARNING",
-            message,
+            "no matching telemetry records were returned."
         )
 
         write_audit_log(
-            session_id,
-            "weather",
-            "fetch_corridor_conditions",
-            message,
+            session_id=session_id,
+            node_executed="weather",
+            tool_name="fetch_corridor_conditions",
+            content=weather,
         )
 
         return {
-            "weather": message,
-            "execution_trace": trace,
+            "weather": weather,
+            "weather_status": "Weather data unavailable.",
         }
 
     weather_results = []
-
-    successful = 0
-    failed = 0
 
     for index, vehicle in enumerate(
         vehicles,
         start=1
     ):
 
-        weather = fetch_corridor_conditions.invoke(
-            {
-                "latitude": vehicle[
-                    "latitude"
-                ],
-                "longitude": vehicle[
-                    "longitude"
-                ],
-            }
+        weather = (
+            fetch_corridor_conditions.invoke(
+                {
+                    "latitude": vehicle["latitude"],
+                    "longitude": vehicle["longitude"],
+                }
+            )
         )
 
         weather_results.append(
@@ -394,79 +440,39 @@ def weather_node(state: AgentState):
             f"{weather}"
         )
 
-        if (
-            weather.startswith("Weather API error")
-            or weather.startswith("ERROR")
-            or weather.startswith("Weather processing error")
-        ):
-            failed += 1
-        else:
-            successful += 1
-
-    weather_text = "\n\n".join(
-        weather_results
+    final_weather = (
+        "\n\n".join(weather_results)
     )
 
-    if failed == 0:
-
-        status = "SUCCESS"
-
-        message = (
-            f"Weather conditions retrieved "
-            f"for {successful} vehicle(s)."
-        )
-
-    else:
-
-        status = "WARNING"
-
-        message = (
-            f"Weather conditions retrieved for "
-            f"{successful} vehicle(s); "
-            f"{failed} request(s) failed."
-        )
-
-    trace = add_trace(
-        state,
-        "weather",
-        "fetch_corridor_conditions",
-        status,
-        message,
+    status = (
+        f"Weather conditions retrieved for "
+        f"{len(vehicles)} vehicle(s)."
     )
 
-    audit_ok, audit_message = write_audit_log(
-        session_id,
-        "weather",
-        "fetch_corridor_conditions",
-        message,
-    )
-
-    trace = add_trace(
-        {
-            **state,
-            "execution_trace": trace,
-        },
-        "weather",
-        "AgentAuditLog",
-        "SUCCESS" if audit_ok else "WARNING",
-        audit_message,
+    write_audit_log(
+        session_id=session_id,
+        node_executed="weather",
+        tool_name="fetch_corridor_conditions",
+        content=status,
     )
 
     return {
-        "weather": weather_text,
-        "execution_trace": trace,
+        "weather": final_weather,
+        "weather_status": status,
     }
 
 
-# ============================================================
+# =========================================================
 # SOP NODE
-# ============================================================
+# =========================================================
 
-def sop_node(state: AgentState):
+def sop_node(
+    state: AgentState
+):
 
     session_id = state.get(
         "session_id",
-        "UNKNOWN"
+        str(uuid4())[:8]
     )
 
     sop_query = """
@@ -484,103 +490,52 @@ def sop_node(state: AgentState):
     - Tier 2 Logistics Manager escalation
     """
 
-    try:
-
-        sop = search_compliance_sop.invoke(
-            {
-                "query": sop_query
-            }
-        )
-
-        if sop.startswith("ERROR") or sop.startswith("SOP search error"):
-
-            status = "WARNING"
-
-            message = (
-                "Cold-chain SOP search returned an error."
-            )
-
-        else:
-
-            status = "SUCCESS"
-
-            message = (
-                "Cold-chain compliance SOP "
-                "searched successfully."
-            )
-
-        trace = add_trace(
-            state,
-            "sop",
-            "search_compliance_sop",
-            status,
-            message,
-        )
-
-        audit_ok, audit_message = write_audit_log(
-            session_id,
-            "sop",
-            "search_compliance_sop",
-            message,
-        )
-
-        trace = add_trace(
-            {
-                **state,
-                "execution_trace": trace,
-            },
-            "sop",
-            "AgentAuditLog",
-            "SUCCESS" if audit_ok else "WARNING",
-            audit_message,
-        )
-
-        return {
-            "sop": sop,
-            "execution_trace": trace,
+    sop = search_compliance_sop.invoke(
+        {
+            "query": sop_query
         }
-
-    except Exception as e:
-
-        message = (
-            f"SOP search failed: {str(e)}"
-        )
-
-        trace = add_trace(
-            state,
-            "sop",
-            "search_compliance_sop",
-            "ERROR",
-            message,
-        )
-
-        write_audit_log(
-            session_id,
-            "sop",
-            "search_compliance_sop",
-            message,
-        )
-
-        return {
-            "sop": "",
-            "execution_trace": trace,
-        }
-
-
-# ============================================================
-# DETERMINISTIC ANALYSIS NODE
-# ============================================================
-
-def analysis_node(state: AgentState):
-
-    session_id = state.get(
-        "session_id",
-        "UNKNOWN"
     )
+
+    if sop.startswith("ERROR"):
+
+        status = "Cold-chain compliance SOP search failed."
+
+    else:
+
+        status = (
+            "Cold-chain compliance SOP "
+            "searched successfully."
+        )
+
+    write_audit_log(
+        session_id=session_id,
+        node_executed="sop",
+        tool_name="search_compliance_sop",
+        content=status,
+    )
+
+    return {
+        "sop": sop,
+        "sop_status": status,
+    }
+
+
+# =========================================================
+# DETERMINISTIC ANALYSIS ENGINE
+# =========================================================
+
+def analysis_node(
+    state: AgentState
+):
 
     telemetry = state.get(
         "telemetry",
         ""
+    )
+
+    session_id = state.get(
+        "session_id",
+        str(uuid4())[:8]
     )
 
     vehicles = parse_telemetry(
@@ -590,33 +545,31 @@ def analysis_node(state: AgentState):
     if not vehicles:
 
         analysis = (
-            "No valid telemetry records were available."
+            "No valid telemetry records "
+            "were available for analysis."
         )
 
-        required_actions = (
+        actions = (
             "No actions available because "
-            "telemetry was not returned."
-        )
-
-        trace = add_trace(
-            state,
-            "analysis",
-            "deterministic_risk_engine",
-            "WARNING",
-            analysis,
+            "no telemetry records were returned."
         )
 
         write_audit_log(
-            session_id,
-            "analysis",
-            "deterministic_risk_engine",
-            analysis,
+            session_id=session_id,
+            node_executed="analysis",
+            tool_name="deterministic_risk_engine",
+            content=(
+                "Deterministic analysis completed "
+                "with no telemetry records."
+            ),
         )
 
         return {
             "analysis": analysis,
-            "required_actions": required_actions,
-            "execution_trace": trace,
+            "required_actions": actions,
+            "analysis_status": (
+                "No telemetry records available."
+            ),
         }
 
     analysis_lines = []
@@ -647,9 +600,9 @@ def analysis_node(state: AgentState):
             "route_risk"
         ]
 
-        # ----------------------------------------------------
+        # -------------------------------------------------
         # TEMPERATURE STATUS
-        # ----------------------------------------------------
+        # -------------------------------------------------
 
         if temperature > 4.0:
 
@@ -660,46 +613,53 @@ def analysis_node(state: AgentState):
         elif 0.0 <= temperature <= 4.0:
 
             temperature_status = (
-                "Within normal fresh-perishables range"
+                "Within normal "
+                "fresh-perishables range"
             )
 
         else:
 
             temperature_status = (
-                "Below the normal fresh-perishables range"
+                "Below the normal "
+                "fresh-perishables range"
             )
 
-        # ----------------------------------------------------
+        # -------------------------------------------------
         # SOP ACTION ENGINE
-        # ----------------------------------------------------
+        # -------------------------------------------------
 
         actions = []
 
-        # Rule 1
+        # Rule 1:
+        # IoT temperature above 4.0°C
         if temperature > 4.0:
 
             actions.append(
-                "Contact driver to restart the "
-                "auxiliary cooling unit"
+                "Contact driver to restart "
+                "the auxiliary cooling unit"
             )
 
-        # Rule 2
+        # Rule 2:
+        # Port congestion above 7.0
         if port_congestion > 7.0:
 
             actions.append(
-                "Suspend standard routing and divert "
-                "to the Inland Empire Overflow Depot "
-                "in San Bernardino for cross-docking"
+                "Suspend standard routing and "
+                "divert to the Inland Empire "
+                "Overflow Depot in San Bernardino "
+                "for cross-docking"
             )
 
-        # Rule 3
+        # Rule 3:
+        # High Risk AND delay probability > 0.65
         if (
             risk == "High Risk"
             and delay_probability > 0.65
         ):
 
             actions.append(
-                "Escalate to Tier 2 Logistics Manager"
+                "Escalate to Tier 2 "
+                "Logistics Manager"
             )
 
         if not actions:
@@ -708,9 +668,9 @@ def analysis_node(state: AgentState):
                 "No immediate SOP-triggered action"
             )
 
-        # ----------------------------------------------------
+        # -------------------------------------------------
         # ANALYSIS
-        # ----------------------------------------------------
+        # -------------------------------------------------
 
         analysis_lines.append(
             f"""
@@ -730,6 +690,10 @@ Required Actions:
 """
         )
 
+        # -------------------------------------------------
+        # ACTIONS
+        # -------------------------------------------------
+
         action_lines.append(
             f"Vehicle {index}:"
         )
@@ -748,55 +712,130 @@ Required Actions:
         action_lines
     )
 
-    message = (
+    status = (
         "Deterministic cold-chain risk "
         "analysis completed."
     )
 
-    trace = add_trace(
-        state,
-        "analysis",
-        "deterministic_risk_engine",
-        "SUCCESS",
-        message,
-    )
-
-    audit_ok, audit_message = write_audit_log(
-        session_id,
-        "analysis",
-        "deterministic_risk_engine",
-        message,
-    )
-
-    trace = add_trace(
-        {
-            **state,
-            "execution_trace": trace,
-        },
-        "analysis",
-        "AgentAuditLog",
-        "SUCCESS" if audit_ok else "WARNING",
-        audit_message,
+    write_audit_log(
+        session_id=session_id,
+        node_executed="analysis",
+        tool_name="deterministic_risk_engine",
+        content=status,
     )
 
     return {
         "analysis": analysis,
         "required_actions": required_actions,
-        "execution_trace": trace,
+        "analysis_status": status,
     }
 
 
-# ============================================================
-# FINAL REPORT BUILDER
-# ============================================================
+# =========================================================
+# WEATHER PARSER FOR UI
+# =========================================================
+
+def parse_weather(
+    weather_text
+):
+
+    if not weather_text:
+        return []
+
+    blocks = weather_text.split(
+        "\n\n"
+    )
+
+    results = []
+
+    for block in blocks:
+
+        lines = block.splitlines()
+
+        if not lines:
+            continue
+
+        vehicle = lines[0]
+
+        data = {
+            "vehicle": vehicle,
+            "latitude": "-",
+            "longitude": "-",
+            "temperature": "-",
+            "wind": "-",
+            "disruption": "-",
+        }
+
+        for line in lines[1:]:
+
+            line = line.strip()
+
+            if line.startswith(
+                "Latitude:"
+            ):
+
+                data["latitude"] = (
+                    line.split(
+                        ":", 1
+                    )[1].strip()
+                )
+
+            elif line.startswith(
+                "Longitude:"
+            ):
+
+                data["longitude"] = (
+                    line.split(
+                        ":", 1
+                    )[1].strip()
+                )
+
+            elif line.startswith(
+                "Current temperature:"
+            ):
+
+                data["temperature"] = (
+                    line.split(
+                        ":", 1
+                    )[1].strip()
+                )
+
+            elif line.startswith(
+                "Wind speed:"
+            ):
+
+                data["wind"] = (
+                    line.split(
+                        ":", 1
+                    )[1].strip()
+                )
+
+            elif line.startswith(
+                "Disruption index:"
+            ):
+
+                data["disruption"] = (
+                    line.split(
+                        ":", 1
+                    )[1].strip()
+                )
+
+        results.append(data)
+
+    return results
+
+
+# =========================================================
+# BUILD FINAL REPORT
+# =========================================================
 
 def build_deterministic_report(
     state: AgentState
 ):
 
-    analysis = state.get(
-        "analysis",
-        "No fleet analysis available."
+    telemetry = state.get(
+        "telemetry",
+        ""
     )
 
     weather = state.get(
@@ -804,29 +843,28 @@ def build_deterministic_report(
         "Weather data unavailable."
     )
 
-    required_actions = state.get(
-        "required_actions",
-        "No required actions available."
-    )
-
     sop = state.get(
         "sop",
         "No SOP information was retrieved."
     )
 
-    vehicles = parse_telemetry(
-        state.get(
-            "telemetry",
-            ""
-        )
+    required_actions = state.get(
+        "required_actions",
+        "No required actions available."
     )
 
-    # ========================================================
-    # OPERATIONAL ASSESSMENT
-    # ========================================================
+    vehicles = parse_telemetry(
+        telemetry
+    )
+
+    # -----------------------------------------------------
+    # COUNTERS
+    # -----------------------------------------------------
 
     high_risk_count = 0
+
     temperature_breach_count = 0
+
     action_vehicle_count = 0
 
     for vehicle in vehicles:
@@ -840,15 +878,19 @@ def build_deterministic_report(
             temperature_breach_count += 1
 
         if (
-            vehicle["port_congestion"] > 7.0
+            vehicle["temperature"] > 4.0
+            or vehicle["port_congestion"] > 7.0
             or (
                 vehicle["risk"] == "High Risk"
                 and vehicle["delay_probability"] > 0.65
             )
-            or vehicle["temperature"] > 4.0
         ):
 
             action_vehicle_count += 1
+
+    # -----------------------------------------------------
+    # OPERATIONAL ASSESSMENT
+    # -----------------------------------------------------
 
     assessment_parts = []
 
@@ -869,24 +911,24 @@ def build_deterministic_report(
     if action_vehicle_count > 0:
 
         assessment_parts.append(
-            f"{action_vehicle_count} vehicle(s) have "
-            "deterministic SOP-triggered actions."
+            f"{action_vehicle_count} vehicle(s) "
+            "have deterministic SOP-triggered actions."
         )
 
     if not assessment_parts:
 
         assessment_parts.append(
-            "No immediate SOP-triggered fleet "
-            "actions were identified."
+            "No immediate SOP-triggered "
+            "fleet actions were identified."
         )
 
-    operational_assessment = " ".join(
-        assessment_parts
+    operational_assessment = (
+        " ".join(assessment_parts)
     )
 
-    # ========================================================
+    # -----------------------------------------------------
     # FLEET SUMMARY
-    # ========================================================
+    # -----------------------------------------------------
 
     fleet_rows = []
 
@@ -908,50 +950,51 @@ def build_deterministic_report(
         elif 0.0 <= temperature <= 4.0:
 
             temperature_status = (
-                "Within normal fresh-perishables range"
+                "Within normal "
+                "fresh-perishables range"
             )
 
         else:
 
             temperature_status = (
-                "Below the normal fresh-perishables range"
+                "Below the normal "
+                "fresh-perishables range"
             )
 
         fleet_rows.append(
             {
                 "Vehicle": f"Vehicle {index}",
                 "Risk": vehicle["risk"],
-                "IoT Temp (°C)": round(
-                    temperature,
-                    2
+                "IoT Temperature": (
+                    f"{temperature:.2f} °C"
                 ),
-                "Temperature Status": temperature_status,
-                "Delay Probability": round(
-                    vehicle["delay_probability"],
-                    3
+                "Delay Probability": (
+                    f"{vehicle['delay_probability']:.3f}"
                 ),
-                "Port Congestion": round(
-                    vehicle["port_congestion"],
-                    3
+                "Port Congestion": (
+                    f"{vehicle['port_congestion']:.3f}"
                 ),
-                "Route Risk": round(
-                    vehicle["route_risk"],
-                    3
+                "Route Risk": (
+                    f"{vehicle['route_risk']:.3f}"
+                ),
+                "Temperature Status": (
+                    temperature_status
                 ),
             }
         )
 
-    # ========================================================
+    # -----------------------------------------------------
     # FINAL REPORT
-    # ========================================================
+    # -----------------------------------------------------
 
-    final_report = f"""### Operational Assessment
+    final_report = f"""
+### Operational Assessment
 
 {operational_assessment}
 
 ### Fleet Risk Summary
 
-{analysis}
+{fleet_rows}
 
 ### Weather Conditions
 
@@ -966,67 +1009,52 @@ def build_deterministic_report(
 {sop}
 """
 
-    return final_report, fleet_rows
+    return final_report
 
 
-# ============================================================
-# REASONER / FINAL REPORT NODE
-# ============================================================
+# =========================================================
+# REASONER / REPORT NODE
+# =========================================================
 
-def reasoner_node(state: AgentState):
+def reasoner_node(
+    state: AgentState
+):
 
     session_id = state.get(
         "session_id",
-        "UNKNOWN"
+        str(uuid4())[:8]
     )
 
-    final_report, fleet_rows = (
+    final_response = (
         build_deterministic_report(
             state
         )
     )
 
-    message = (
+    status = (
         "Operational report generated."
     )
 
-    trace = add_trace(
-        state,
-        "reasoner",
-        "operational_report_generator",
-        "SUCCESS",
-        message,
-    )
-
-    audit_ok, audit_message = write_audit_log(
-        session_id,
-        "reasoner",
-        "operational_report_generator",
-        message,
-    )
-
-    trace = add_trace(
-        {
-            **state,
-            "execution_trace": trace,
-        },
-        "reasoner",
-        "AgentAuditLog",
-        "SUCCESS" if audit_ok else "WARNING",
-        audit_message,
+    write_audit_log(
+        session_id=session_id,
+        node_executed="reasoner",
+        tool_name="operational_report_generator",
+        content=status,
     )
 
     return {
-        "final_response": final_report,
-        "execution_trace": trace,
+        "final_response": final_response,
+        "report_status": status,
     }
 
 
-# ============================================================
-# BUILD GRAPH
-# ============================================================
+# =========================================================
+# GRAPH
+# =========================================================
 
-def build_graph(llm=None):
+def build_graph(
+    llm: Optional[object] = None
+):
 
     graph_builder = StateGraph(
         AgentState
@@ -1057,9 +1085,9 @@ def build_graph(llm=None):
         reasoner_node
     )
 
-    # --------------------------------------------------------
+    # -----------------------------------------------------
     # WORKFLOW
-    # --------------------------------------------------------
+    # -----------------------------------------------------
 
     graph_builder.add_edge(
         START,
