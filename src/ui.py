@@ -1,8 +1,6 @@
-import re
-from uuid import uuid4
-
 import pandas as pd
 import streamlit as st
+from uuid import uuid4
 
 from src.orchestrator import (
     build_graph,
@@ -43,41 +41,6 @@ st.markdown(
         margin-bottom: 25px;
     }
 
-    .status-box {
-        padding: 12px;
-        border-radius: 8px;
-        margin-bottom: 8px;
-        font-size: 14px;
-    }
-
-    .section-title {
-        font-size: 22px;
-        font-weight: 650;
-        margin-top: 20px;
-        margin-bottom: 12px;
-    }
-
-    .action-box {
-        padding: 12px;
-        border-radius: 8px;
-        margin-bottom: 8px;
-    }
-
-    .safe-action {
-        background-color: rgba(34, 197, 94, 0.15);
-        border: 1px solid rgba(34, 197, 94, 0.30);
-    }
-
-    .warning-action {
-        background-color: rgba(234, 179, 8, 0.15);
-        border: 1px solid rgba(234, 179, 8, 0.30);
-    }
-
-    .danger-action {
-        background-color: rgba(239, 68, 68, 0.15);
-        border: 1px solid rgba(239, 68, 68, 0.30);
-    }
-
     </style>
     """,
     unsafe_allow_html=True,
@@ -94,13 +57,16 @@ if "session_id" not in st.session_state:
         str(uuid4())[:8]
     )
 
+
 if "last_result" not in st.session_state:
 
     st.session_state.last_result = None
 
+
 if "last_request" not in st.session_state:
 
     st.session_state.last_request = ""
+
 
 if "analysis_count" not in st.session_state:
 
@@ -218,6 +184,7 @@ st.caption(
     "Enter your operational query"
 )
 
+
 user_query = st.text_area(
     "Operational Query",
     placeholder=(
@@ -235,7 +202,7 @@ run_analysis = st.button(
 
 
 # =========================================================
-# RUN GRAPH
+# RUN ANALYSIS
 # =========================================================
 
 if run_analysis:
@@ -308,6 +275,11 @@ if result:
         ""
     )
 
+    analysis_text = result.get(
+        "analysis",
+        ""
+    )
+
     vehicles = parse_telemetry(
         telemetry_text
     )
@@ -325,32 +297,71 @@ if result:
         "## Operational Overview"
     )
 
+
     high_risk_count = sum(
         1
         for vehicle in vehicles
-        if vehicle["risk"] == "High Risk"
+        if vehicle.get(
+            "Risk_Classification"
+        ) == "High Risk"
     )
+
 
     temperature_breach_count = sum(
         1
         for vehicle in vehicles
-        if vehicle["temperature"] > 4.0
+        if isinstance(
+            vehicle.get(
+                "Current_Temperature_C"
+            ),
+            (int, float),
+        )
+        and vehicle.get(
+            "Current_Temperature_C"
+        ) > 4.0
     )
 
-    action_vehicle_count = sum(
-        1
-        for vehicle in vehicles
-        if (
-            vehicle["temperature"] > 4.0
-            or vehicle["port_congestion"] > 7.0
-            or (
-                vehicle["risk"] == "High Risk"
-                and vehicle["delay_probability"] > 0.65
-            )
-        )
+
+    # -----------------------------------------------------
+    # Count unique vehicles that have actual actions
+    # -----------------------------------------------------
+
+    actions = result.get(
+        "actions",
+        []
     )
+
+    action_vehicle_ids = set()
+
+
+    if isinstance(actions, list):
+
+        for action in actions:
+
+            if not isinstance(
+                action,
+                dict,
+            ):
+                continue
+
+            vehicle_id = action.get(
+                "Vehicle"
+            )
+
+            if vehicle_id is not None:
+
+                action_vehicle_ids.add(
+                    vehicle_id
+                )
+
+
+    action_vehicle_count = len(
+        action_vehicle_ids
+    )
+
 
     col1, col2, col3, col4 = st.columns(4)
+
 
     with col1:
 
@@ -359,6 +370,7 @@ if result:
             len(vehicles),
         )
 
+
     with col2:
 
         st.metric(
@@ -366,12 +378,14 @@ if result:
             high_risk_count,
         )
 
+
     with col3:
 
         st.metric(
             "Temp Breaches",
             temperature_breach_count,
         )
+
 
     with col4:
 
@@ -392,7 +406,9 @@ if result:
         "## Operational Assessment"
     )
 
+
     assessment_parts = []
+
 
     if high_risk_count:
 
@@ -401,12 +417,14 @@ if result:
             "classified as High Risk."
         )
 
+
     if temperature_breach_count:
 
         assessment_parts.append(
             f"{temperature_breach_count} vehicle(s) "
             "exceed the 4.0°C threshold."
         )
+
 
     if action_vehicle_count:
 
@@ -415,12 +433,14 @@ if result:
             "have deterministic SOP-triggered actions."
         )
 
+
     if not assessment_parts:
 
         assessment_parts.append(
             "No immediate SOP-triggered fleet "
             "actions were identified."
         )
+
 
     st.info(
         " ".join(assessment_parts)
@@ -435,26 +455,62 @@ if result:
         "## Fleet Risk Summary"
     )
 
+
     if vehicles:
 
         fleet_rows = []
 
+
         for index, vehicle in enumerate(
             vehicles,
-            start=1
+            start=1,
         ):
 
-            temperature = vehicle[
-                "temperature"
-            ]
+            temperature = vehicle.get(
+                "Current_Temperature_C"
+            )
 
-            if temperature > 4.0:
+            risk = vehicle.get(
+                "Risk_Classification",
+                "Unknown",
+            )
+
+            delay_probability = vehicle.get(
+                "Delay_Probability"
+            )
+
+            port_congestion = vehicle.get(
+                "Port_Congestion_Level"
+            )
+
+            route_risk = vehicle.get(
+                "Route_Risk_Index"
+            )
+
+
+            # -------------------------------------------------
+            # Temperature status
+            # -------------------------------------------------
+
+            if (
+                isinstance(
+                    temperature,
+                    (int, float),
+                )
+                and temperature > 4.0
+            ):
 
                 temperature_status = (
                     "IMMEDIATE COLD-CHAIN BREACH"
                 )
 
-            elif 0.0 <= temperature <= 4.0:
+            elif (
+                isinstance(
+                    temperature,
+                    (int, float),
+                )
+                and 0.0 <= temperature <= 4.0
+            ):
 
                 temperature_status = (
                     "Within normal range"
@@ -466,41 +522,69 @@ if result:
                     "Below normal range"
                 )
 
+
             fleet_rows.append(
                 {
                     "Vehicle": (
                         f"Vehicle {index}"
                     ),
-                    "Risk": vehicle[
-                        "risk"
-                    ],
+
+                    "Risk": risk,
+
                     "IoT Temperature": (
                         f"{temperature:.2f} °C"
+                        if isinstance(
+                            temperature,
+                            (int, float),
+                        )
+                        else "N/A"
                     ),
+
                     "Delay Probability": (
-                        f"{vehicle['delay_probability']:.3f}"
+                        f"{delay_probability:.3f}"
+                        if isinstance(
+                            delay_probability,
+                            (int, float),
+                        )
+                        else "N/A"
                     ),
+
                     "Port Congestion": (
-                        f"{vehicle['port_congestion']:.3f}"
+                        f"{port_congestion:.3f}"
+                        if isinstance(
+                            port_congestion,
+                            (int, float),
+                        )
+                        else "N/A"
                     ),
+
                     "Route Risk": (
-                        f"{vehicle['route_risk']:.3f}"
+                        f"{route_risk:.3f}"
+                        if isinstance(
+                            route_risk,
+                            (int, float),
+                        )
+                        else "N/A"
                     ),
+
                     "Temperature Status": (
                         temperature_status
                     ),
                 }
             )
 
+
         fleet_df = pd.DataFrame(
             fleet_rows
         )
+
 
         st.dataframe(
             fleet_df,
             use_container_width=True,
             hide_index=True,
         )
+
 
     else:
 
@@ -517,44 +601,68 @@ if result:
         "## Weather Conditions"
     )
 
+
     if weather_data:
 
         weather_rows = []
+
 
         for data in weather_data:
 
             weather_rows.append(
                 {
-                    "Vehicle": data[
-                        "vehicle"
-                    ],
-                    "Latitude": data[
-                        "latitude"
-                    ],
-                    "Longitude": data[
-                        "longitude"
-                    ],
-                    "Weather Temperature": data[
-                        "temperature"
-                    ],
-                    "Wind Speed": data[
-                        "wind"
-                    ],
-                    "Disruption Index": data[
-                        "disruption"
-                    ],
+                    "Vehicle": data.get(
+                        "Vehicle",
+                        "Unknown",
+                    ),
+
+                    "Weather Temperature": (
+                        f"{data['Weather_Temperature_C']:.1f} °C"
+                        if isinstance(
+                            data.get(
+                                "Weather_Temperature_C"
+                            ),
+                            (int, float),
+                        )
+                        else "N/A"
+                    ),
+
+                    "Wind Speed": (
+                        f"{data['Wind_Speed_kmh']:.1f} km/h"
+                        if isinstance(
+                            data.get(
+                                "Wind_Speed_kmh"
+                            ),
+                            (int, float),
+                        )
+                        else "N/A"
+                    ),
+
+                    "Disruption Index": (
+                        f"{data['Disruption_Index']:.1f}"
+                        if isinstance(
+                            data.get(
+                                "Disruption_Index"
+                            ),
+                            (int, float),
+                        )
+                        else "N/A"
+                    ),
                 }
             )
+
 
         weather_df = pd.DataFrame(
             weather_rows
         )
+
 
         st.dataframe(
             weather_df,
             use_container_width=True,
             hide_index=True,
         )
+
 
     else:
 
@@ -571,64 +679,122 @@ if result:
         "## 🚨 Required Actions"
     )
 
-    required_actions = result.get(
-        "required_actions",
-        ""
-    )
 
-    if required_actions:
+    if isinstance(
+        actions,
+        list,
+    ) and actions:
 
-        blocks = required_actions.split(
-            "\n\n"
-        )
+        actions_by_vehicle = {}
 
-        for block in blocks:
 
-            lines = block.splitlines()
+        for item in actions:
 
-            if not lines:
+            if not isinstance(
+                item,
+                dict,
+            ):
                 continue
 
-            vehicle_name = lines[0]
 
-            st.markdown(
-                f"### {vehicle_name}"
+            vehicle_id = item.get(
+                "Vehicle"
             )
 
-            for line in lines[1:]:
+            action_text = item.get(
+                "Action"
+            )
 
-                action = line.strip()
 
-                if not action.startswith("-"):
+            if (
+                vehicle_id is None
+                or not action_text
+            ):
+                continue
 
-                    continue
 
-                action_text = action[1:].strip()
+            actions_by_vehicle.setdefault(
+                vehicle_id,
+                [],
+            ).append(
+                str(action_text)
+            )
 
-                if (
-                    "No immediate" in action_text
-                ):
 
-                    st.success(
-                        action_text
+        if actions_by_vehicle:
+
+            for (
+                vehicle_id,
+                vehicle_actions,
+            ) in actions_by_vehicle.items():
+
+                st.markdown(
+                    f"### Vehicle {vehicle_id}"
+                )
+
+
+                for action_text in vehicle_actions:
+
+                    action_lower = (
+                        action_text.lower()
                     )
 
-                elif (
-                    "Escalate" in action_text
-                    or "Suspend" in action_text
-                    or "divert" in action_text.lower()
-                    or "restart" in action_text.lower()
-                ):
 
-                    st.warning(
-                        action_text
-                    )
+                    if (
+                        "escalate"
+                        in action_lower
+                    ):
 
-                else:
+                        st.error(
+                            f"🔴 {action_text}"
+                        )
 
-                    st.info(
-                        action_text
-                    )
+
+                    elif (
+                        "breach"
+                        in action_lower
+                    ):
+
+                        st.error(
+                            f"🔴 {action_text}"
+                        )
+
+
+                    elif (
+                        "suspend"
+                        in action_lower
+                        or "divert"
+                        in action_lower
+                    ):
+
+                        st.warning(
+                            f"🟡 {action_text}"
+                        )
+
+
+                    elif (
+                        "restart"
+                        in action_lower
+                    ):
+
+                        st.warning(
+                            f"🟡 {action_text}"
+                        )
+
+
+                    else:
+
+                        st.info(
+                            f"🔵 {action_text}"
+                        )
+
+
+        else:
+
+            st.success(
+                "No immediate SOP-triggered actions."
+            )
+
 
     else:
 
@@ -638,32 +804,50 @@ if result:
 
 
     # =====================================================
-    # DETAILS
+    # SOP COMPLIANCE
     # =====================================================
 
     st.divider()
+
 
     with st.expander(
         "📋 SOP Compliance",
         expanded=False,
     ):
 
-        st.markdown(
-            sop_text
-        )
+        if sop_text:
 
+            st.markdown(
+                sop_text
+            )
+
+        else:
+
+            st.info(
+                "No SOP information was retrieved."
+            )
+
+
+    # =====================================================
+    # DETAILED ANALYSIS
+    # =====================================================
 
     with st.expander(
         "🔎 Detailed Analysis",
         expanded=False,
     ):
 
-        st.text(
-            result.get(
-                "analysis",
-                "No analysis available."
+        if analysis_text:
+
+            st.text(
+                analysis_text
             )
-        )
+
+        else:
+
+            st.info(
+                "No detailed analysis available."
+            )
 
 
     # =====================================================
@@ -677,48 +861,71 @@ if result:
 
         telemetry_status = result.get(
             "telemetry_status",
-            "Telemetry node completed."
+            "Telemetry node completed.",
         )
 
         weather_status = result.get(
             "weather_status",
-            "Weather node completed."
+            "Weather node completed.",
         )
 
         sop_status = result.get(
             "sop_status",
-            "SOP node completed."
+            "SOP node completed.",
         )
 
         analysis_status = result.get(
             "analysis_status",
-            "Analysis node completed."
+            "Analysis node completed.",
         )
 
-        report_status = result.get(
-            "report_status",
-            "Report node completed."
+        reasoner_status = result.get(
+            "reasoner_status",
+            "Reasoner completed.",
+        )
+
+
+        st.success(
+            f"Telemetry: {telemetry_status}"
         )
 
         st.success(
-            telemetry_status
+            f"Weather: {weather_status}"
         )
 
         st.success(
-            weather_status
+            f"SOP: {sop_status}"
         )
 
         st.success(
-            sop_status
+            f"Analysis: {analysis_status}"
         )
 
         st.success(
-            analysis_status
+            f"Reasoner: {reasoner_status}"
         )
 
-        st.success(
-            report_status
-        )
+
+    # =====================================================
+    # FINAL RESPONSE
+    # =====================================================
+
+    final_response = result.get(
+        "final_response",
+        ""
+    )
+
+
+    if final_response:
+
+        with st.expander(
+            "📝 Final Operational Report",
+            expanded=False,
+        ):
+
+            st.markdown(
+                final_response
+            )
 
 
     # =====================================================
