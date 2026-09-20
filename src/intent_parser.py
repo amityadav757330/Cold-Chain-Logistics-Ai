@@ -49,7 +49,11 @@ def parse_intent(user_request: str) -> str:
             "too hot",
             "temperature breach",
             "temperature issue",
+            "temperature problem",
+            "temperature problems",
             "safe temperature",
+            "cold chain breach",
+            "cold-chain breach",
         ]
     ):
         return "temperature_breach"
@@ -62,9 +66,16 @@ def parse_intent(user_request: str) -> str:
         for phrase in [
             "port congestion",
             "port congested",
+            "port congestion level",
             "congestion",
             "port delay",
+            "port delays",
             "port risk",
+            "congested port",
+            "congested ports",
+            "ports are congested",
+            "vehicles have port congestion",
+            "trucks have port congestion",
         ]
     ):
         return "port_congestion"
@@ -77,9 +88,14 @@ def parse_intent(user_request: str) -> str:
         for phrase in [
             "high risk",
             "high-risk",
+            "highrisk",
+            "risky vehicle",
             "risky vehicles",
+            "risky truck",
             "risky trucks",
+            "vehicle at risk",
             "vehicles at risk",
+            "shipment at risk",
             "shipments at risk",
             "at risk",
         ]
@@ -93,9 +109,13 @@ def parse_intent(user_request: str) -> str:
         phrase in query
         for phrase in [
             "delay",
+            "delays",
             "delayed",
             "late",
             "delivery delay",
+            "delivery delays",
+            "delay risk",
+            "delivery late",
         ]
     ):
         return "delay_risk"
@@ -107,9 +127,22 @@ def parse_intent(user_request: str) -> str:
         phrase in query
         for phrase in [
             "route risk",
+            "route risks",
+            "risk route",
+            "risk routes",
             "route risky",
+            "route is risky",
+            "routes are risky",
             "risky route",
+            "risky routes",
             "dangerous route",
+            "dangerous routes",
+            "route danger",
+            "dangerous routing",
+            "unsafe route",
+            "unsafe routes",
+            "route is unsafe",
+            "routes are unsafe",
         ]
     ):
         return "route_risk"
