@@ -9,9 +9,9 @@ from src.orchestrator import (
 )
 
 
-# =========================================================
+# ============================================================
 # PAGE CONFIGURATION
-# =========================================================
+# ============================================================
 
 st.set_page_config(
     page_title="Cold-Chain Logistics AI",
@@ -21,9 +21,9 @@ st.set_page_config(
 )
 
 
-# =========================================================
-# CUSTOM CSS
-# =========================================================
+# ============================================================
+# CUSTOM STYLING
+# ============================================================
 
 st.markdown(
     """
@@ -47,112 +47,74 @@ st.markdown(
 )
 
 
-# =========================================================
+# ============================================================
 # SESSION STATE
-# =========================================================
+# ============================================================
 
 if "session_id" not in st.session_state:
-
-    st.session_state.session_id = (
-        str(uuid4())[:8]
-    )
-
+    st.session_state.session_id = str(uuid4())[:8]
 
 if "last_result" not in st.session_state:
-
     st.session_state.last_result = None
 
-
 if "last_request" not in st.session_state:
-
     st.session_state.last_request = ""
 
-
 if "analysis_count" not in st.session_state:
-
     st.session_state.analysis_count = 0
 
 
-# =========================================================
+# ============================================================
 # GRAPH
-# =========================================================
+# ============================================================
 
 @st.cache_resource
 def get_graph():
-
     return build_graph()
 
 
 graph = get_graph()
 
 
-# =========================================================
+# ============================================================
 # SIDEBAR
-# =========================================================
+# ============================================================
 
 with st.sidebar:
 
-    st.markdown(
-        "## 🚚 Dispatch Console"
-    )
-
-    st.caption(
-        "Cold-Chain Logistics AI"
-    )
+    st.markdown("## 🚚 Dispatch Console")
+    st.caption("Cold-Chain Logistics AI")
 
     st.divider()
 
-    st.markdown(
-        "### System Status"
-    )
+    st.markdown("### System Status")
 
-    st.success(
-        "Database connected"
-    )
-
-    st.success(
-        "Weather service available"
-    )
-
-    st.success(
-        "SOP search available"
-    )
-
-    st.success(
-        "Deterministic risk engine ready"
-    )
+    st.success("Database connected")
+    st.success("Weather service available")
+    st.success("SOP search available")
+    st.success("Deterministic risk engine ready")
 
     st.divider()
 
-    st.markdown(
-        "### Current Session"
-    )
+    st.markdown("### Current Session")
 
-    st.code(
-        st.session_state.session_id
-    )
+    st.code(st.session_state.session_id)
 
     if st.button(
         "Start New Session",
         use_container_width=True,
     ):
-
-        st.session_state.session_id = (
-            str(uuid4())[:8]
-        )
-
+        st.session_state.session_id = str(uuid4())[:8]
         st.session_state.last_result = None
-
         st.session_state.last_request = ""
-
         st.session_state.analysis_count = 0
 
         st.rerun()
 
 
-# =========================================================
-# HEADER
-# =========================================================
+# ============================================================
+# PAGE HEADER
+# ============================================================
 
 st.markdown(
     '<div class="main-title">🚚 Cold-Chain Logistics AI Assistant</div>',
@@ -172,28 +134,19 @@ st.markdown(
 st.divider()
 
 
-# =========================================================
+# ============================================================
 # DISPATCHER CONSOLE
-# =========================================================
+# ============================================================
 
-st.markdown(
-    "## Dispatcher Console"
-)
-
-st.caption(
-    "Enter your operational query"
-)
-
+st.markdown("## Dispatcher Console")
+st.caption("Enter your operational query")
 
 user_query = st.text_area(
     "Operational Query",
-    placeholder=(
-        "Example: Show me all high risk vehicles"
-    ),
+    placeholder="Example: Show me all high risk vehicles",
     height=100,
     label_visibility="collapsed",
 )
-
 
 run_analysis = st.button(
     "🔍 Run Analysis",
@@ -201,9 +154,9 @@ run_analysis = st.button(
 )
 
 
-# =========================================================
+# ============================================================
 # RUN ANALYSIS
-# =========================================================
+# ============================================================
 
 if run_analysis:
 
@@ -215,9 +168,7 @@ if run_analysis:
 
     else:
 
-        st.session_state.last_request = (
-            user_query.strip()
-        )
+        st.session_state.last_request = user_query.strip()
 
         with st.spinner(
             "Running cold-chain analysis..."
@@ -227,19 +178,12 @@ if run_analysis:
 
                 result = graph.invoke(
                     {
-                        "user_request": (
-                            user_query.strip()
-                        ),
-                        "session_id": (
-                            st.session_state.session_id
-                        ),
+                        "user_request": user_query.strip(),
+                        "session_id": st.session_state.session_id,
                     }
                 )
 
-                st.session_state.last_result = (
-                    result
-                )
-
+                st.session_state.last_result = result
                 st.session_state.analysis_count += 1
 
             except Exception as e:
@@ -251,9 +195,9 @@ if run_analysis:
                 st.stop()
 
 
-# =========================================================
-# DISPLAY RESULT
-# =========================================================
+# ============================================================
+# DISPLAY LAST RESULT
+# ============================================================
 
 result = st.session_state.last_result
 
@@ -262,23 +206,28 @@ if result:
 
     telemetry_text = result.get(
         "telemetry",
-        ""
+        "",
     )
 
     weather_text = result.get(
         "weather",
-        ""
+        "",
     )
 
     sop_text = result.get(
         "sop",
-        ""
+        "",
     )
 
     analysis_text = result.get(
         "analysis",
-        ""
+        "",
     )
+
+
+    # ========================================================
+    # PARSE RESULTS
+    # ========================================================
 
     vehicles = parse_telemetry(
         telemetry_text
@@ -289,31 +238,24 @@ if result:
     )
 
 
-    # =====================================================
+    # ========================================================
     # OPERATIONAL OVERVIEW
-    # =====================================================
+    # ========================================================
 
-    st.markdown(
-        "## Operational Overview"
-    )
-
+    st.markdown("## Operational Overview")
 
     high_risk_count = sum(
         1
         for vehicle in vehicles
-        if vehicle.get(
-            "Risk_Classification"
-        ) == "High Risk"
+        if vehicle.get("Risk_Classification")
+        == "High Risk"
     )
-
 
     temperature_breach_count = sum(
         1
         for vehicle in vehicles
         if isinstance(
-            vehicle.get(
-                "Current_Temperature_C"
-            ),
+            vehicle.get("Current_Temperature_C"),
             (int, float),
         )
         and vehicle.get(
@@ -322,17 +264,16 @@ if result:
     )
 
 
-    # -----------------------------------------------------
-    # Count unique vehicles that have actual actions
-    # -----------------------------------------------------
+    # ========================================================
+    # ACTION COUNTS
+    # ========================================================
 
     actions = result.get(
         "actions",
-        []
+        [],
     )
 
     action_vehicle_ids = set()
-
 
     if isinstance(actions, list):
 
@@ -349,7 +290,6 @@ if result:
             )
 
             if vehicle_id is not None:
-
                 action_vehicle_ids.add(
                     vehicle_id
                 )
@@ -360,8 +300,11 @@ if result:
     )
 
 
-    col1, col2, col3, col4 = st.columns(4)
+    # ========================================================
+    # OVERVIEW METRICS
+    # ========================================================
 
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
 
@@ -370,7 +313,6 @@ if result:
             len(vehicles),
         )
 
-
     with col2:
 
         st.metric(
@@ -378,14 +320,12 @@ if result:
             high_risk_count,
         )
 
-
     with col3:
 
         st.metric(
             "Temp Breaches",
             temperature_breach_count,
         )
-
 
     with col4:
 
@@ -398,68 +338,56 @@ if result:
     st.divider()
 
 
-    # =====================================================
+    # ========================================================
     # OPERATIONAL ASSESSMENT
-    # =====================================================
+    # ========================================================
 
     st.markdown(
         "## Operational Assessment"
     )
 
-
     assessment_parts = []
-
 
     if high_risk_count:
 
         assessment_parts.append(
-            f"{high_risk_count} vehicle(s) "
-            "classified as High Risk."
+            f"{high_risk_count} vehicle(s) classified as High Risk."
         )
-
 
     if temperature_breach_count:
 
         assessment_parts.append(
-            f"{temperature_breach_count} vehicle(s) "
-            "exceed the 4.0°C threshold."
+            f"{temperature_breach_count} vehicle(s) exceed the 4.0°C threshold."
         )
-
 
     if action_vehicle_count:
 
         assessment_parts.append(
-            f"{action_vehicle_count} vehicle(s) "
-            "have deterministic SOP-triggered actions."
+            f"{action_vehicle_count} vehicle(s) have deterministic SOP-triggered actions."
         )
-
 
     if not assessment_parts:
 
         assessment_parts.append(
-            "No immediate SOP-triggered fleet "
-            "actions were identified."
+            "No immediate SOP-triggered fleet actions were identified."
         )
-
 
     st.info(
         " ".join(assessment_parts)
     )
 
 
-    # =====================================================
+    # ========================================================
     # FLEET RISK SUMMARY
-    # =====================================================
+    # ========================================================
 
     st.markdown(
         "## Fleet Risk Summary"
     )
 
-
     if vehicles:
 
         fleet_rows = []
-
 
         for index, vehicle in enumerate(
             vehicles,
@@ -488,9 +416,9 @@ if result:
             )
 
 
-            # -------------------------------------------------
-            # Temperature status
-            # -------------------------------------------------
+            # ------------------------------------------------
+            # TEMPERATURE STATUS
+            # ------------------------------------------------
 
             if (
                 isinstance(
@@ -523,11 +451,13 @@ if result:
                 )
 
 
+            # ------------------------------------------------
+            # FLEET ROW
+            # ------------------------------------------------
+
             fleet_rows.append(
                 {
-                    "Vehicle": (
-                        f"Vehicle {index}"
-                    ),
+                    "Vehicle": f"Vehicle {index}",
 
                     "Risk": risk,
 
@@ -567,9 +497,7 @@ if result:
                         else "N/A"
                     ),
 
-                    "Temperature Status": (
-                        temperature_status
-                    ),
+                    "Temperature Status": temperature_status,
                 }
             )
 
@@ -578,13 +506,11 @@ if result:
             fleet_rows
         )
 
-
         st.dataframe(
             fleet_df,
             use_container_width=True,
             hide_index=True,
         )
-
 
     else:
 
@@ -593,19 +519,17 @@ if result:
         )
 
 
-    # =====================================================
+    # ========================================================
     # WEATHER CONDITIONS
-    # =====================================================
+    # ========================================================
 
     st.markdown(
         "## Weather Conditions"
     )
 
-
     if weather_data:
 
         weather_rows = []
-
 
         for data in weather_data:
 
@@ -656,13 +580,11 @@ if result:
             weather_rows
         )
 
-
         st.dataframe(
             weather_df,
             use_container_width=True,
             hide_index=True,
         )
-
 
     else:
 
@@ -671,22 +593,20 @@ if result:
         )
 
 
-    # =====================================================
+    # ========================================================
     # REQUIRED ACTIONS
-    # =====================================================
+    # ========================================================
 
     st.markdown(
         "## 🚨 Required Actions"
     )
 
-
-    if isinstance(
-        actions,
-        list,
-    ) and actions:
+    if (
+        isinstance(actions, list)
+        and actions
+    ):
 
         actions_by_vehicle = {}
-
 
         for item in actions:
 
@@ -696,7 +616,6 @@ if result:
             ):
                 continue
 
-
             vehicle_id = item.get(
                 "Vehicle"
             )
@@ -705,13 +624,11 @@ if result:
                 "Action"
             )
 
-
             if (
                 vehicle_id is None
                 or not action_text
             ):
                 continue
-
 
             actions_by_vehicle.setdefault(
                 vehicle_id,
@@ -732,55 +649,38 @@ if result:
                     f"### Vehicle {vehicle_id}"
                 )
 
-
                 for action_text in vehicle_actions:
 
                     action_lower = (
                         action_text.lower()
                     )
 
-
-                    if (
-                        "escalate"
-                        in action_lower
-                    ):
+                    if "escalate" in action_lower:
 
                         st.error(
                             f"🔴 {action_text}"
                         )
 
-
-                    elif (
-                        "breach"
-                        in action_lower
-                    ):
+                    elif "breach" in action_lower:
 
                         st.error(
                             f"🔴 {action_text}"
                         )
 
-
                     elif (
-                        "suspend"
-                        in action_lower
-                        or "divert"
-                        in action_lower
+                        "suspend" in action_lower
+                        or "divert" in action_lower
                     ):
 
                         st.warning(
                             f"🟡 {action_text}"
                         )
 
-
-                    elif (
-                        "restart"
-                        in action_lower
-                    ):
+                    elif "restart" in action_lower:
 
                         st.warning(
                             f"🟡 {action_text}"
                         )
-
 
                     else:
 
@@ -788,13 +688,11 @@ if result:
                             f"🔵 {action_text}"
                         )
 
-
         else:
 
             st.success(
                 "No immediate SOP-triggered actions."
             )
-
 
     else:
 
@@ -803,12 +701,12 @@ if result:
         )
 
 
-    # =====================================================
-    # SOP COMPLIANCE
-    # =====================================================
-
     st.divider()
 
+
+    # ========================================================
+    # SOP COMPLIANCE
+    # ========================================================
 
     with st.expander(
         "📋 SOP Compliance",
@@ -828,9 +726,9 @@ if result:
             )
 
 
-    # =====================================================
+    # ========================================================
     # DETAILED ANALYSIS
-    # =====================================================
+    # ========================================================
 
     with st.expander(
         "🔎 Detailed Analysis",
@@ -850,9 +748,9 @@ if result:
             )
 
 
-    # =====================================================
+    # ========================================================
     # ANALYSIS EXECUTION TRACE
-    # =====================================================
+    # ========================================================
 
     with st.expander(
         "🔍 Analysis Execution Trace",
@@ -906,15 +804,88 @@ if result:
         )
 
 
-    # =====================================================
-    # FINAL RESPONSE
-    # =====================================================
+    # ========================================================
+    # AUDIT & TRACEABILITY
+    # ========================================================
+
+    st.markdown(
+        "## 🧾 Audit & Traceability"
+    )
+
+    audit_history = result.get(
+        "audit_history",
+        [],
+    )
+
+    if audit_history:
+
+        audit_rows = []
+
+        for record in audit_history:
+
+            if not isinstance(
+                record,
+                dict,
+            ):
+                continue
+
+            row = {}
+
+            for key, value in record.items():
+
+                if value is None:
+
+                    row[key] = ""
+
+                else:
+
+                    row[key] = str(value)
+
+            audit_rows.append(
+                row
+            )
+
+
+        if audit_rows:
+
+            audit_df = pd.DataFrame(
+                audit_rows
+            )
+
+            st.caption(
+                "Enterprise audit records generated "
+                "during this analysis session."
+            )
+
+            st.dataframe(
+                audit_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        else:
+
+            st.info(
+                "No audit records are available "
+                "for this session."
+            )
+
+    else:
+
+        st.info(
+            "No audit records are available "
+            "for this session."
+        )
+
+
+    # ========================================================
+    # FINAL OPERATIONAL REPORT
+    # ========================================================
 
     final_response = result.get(
         "final_response",
-        ""
+        "",
     )
-
 
     if final_response:
 
@@ -928,9 +899,9 @@ if result:
             )
 
 
-    # =====================================================
+    # ========================================================
     # SESSION INFORMATION
-    # =====================================================
+    # ========================================================
 
     with st.expander(
         "🧾 Session Information",
