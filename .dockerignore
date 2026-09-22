@@ -1,0 +1,32 @@
+# Git
+.git/
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+.env
+.env.*
+
+# Local cache
+data/cache/
+
+# Large local dataset
+data/raw/*.csv
+
+# Documentation/build noise
+*.log
+dist/
+build/
+*.egg-info/
