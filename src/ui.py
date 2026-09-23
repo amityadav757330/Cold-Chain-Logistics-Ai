@@ -1,4 +1,4 @@
-import pandas as pd
+﻿import pandas as pd
 import streamlit as st
 from uuid import uuid4
 
@@ -15,7 +15,7 @@ from src.orchestrator import (
 
 st.set_page_config(
     page_title="Cold-Chain Logistics AI",
-    page_icon="🚚",
+    page_icon="ðŸšš",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -82,7 +82,7 @@ graph = get_graph()
 
 with st.sidebar:
 
-    st.markdown("## 🚚 Dispatch Console")
+    st.markdown("## ðŸšš Dispatch Console")
     st.caption("Cold-Chain Logistics AI")
 
     st.divider()
@@ -102,7 +102,7 @@ with st.sidebar:
 
     if st.button(
         "Start New Session",
-        use_container_width=True,
+        width="stretch",
     ):
         st.session_state.session_id = str(uuid4())[:8]
         st.session_state.last_result = None
@@ -117,7 +117,7 @@ with st.sidebar:
 # ============================================================
 
 st.markdown(
-    '<div class="main-title">🚚 Cold-Chain Logistics AI Assistant</div>',
+    '<div class="main-title">ðŸšš Cold-Chain Logistics AI Assistant</div>',
     unsafe_allow_html=True,
 )
 
@@ -149,7 +149,7 @@ user_query = st.text_area(
 )
 
 run_analysis = st.button(
-    "🔍 Run Analysis",
+    "ðŸ” Run Analysis",
     type="primary",
 )
 
@@ -357,7 +357,7 @@ if result:
     if temperature_breach_count:
 
         assessment_parts.append(
-            f"{temperature_breach_count} vehicle(s) exceed the 4.0°C threshold."
+            f"{temperature_breach_count} vehicle(s) exceed the 4.0Â°C threshold."
         )
 
     if action_vehicle_count:
@@ -462,7 +462,7 @@ if result:
                     "Risk": risk,
 
                     "IoT Temperature": (
-                        f"{temperature:.2f} °C"
+                        f"{temperature:.2f} Â°C"
                         if isinstance(
                             temperature,
                             (int, float),
@@ -508,7 +508,7 @@ if result:
 
         st.dataframe(
             fleet_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -541,7 +541,7 @@ if result:
                     ),
 
                     "Weather Temperature": (
-                        f"{data['Weather_Temperature_C']:.1f} °C"
+                        f"{data['Weather_Temperature_C']:.1f} Â°C"
                         if isinstance(
                             data.get(
                                 "Weather_Temperature_C"
@@ -582,7 +582,7 @@ if result:
 
         st.dataframe(
             weather_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -598,7 +598,7 @@ if result:
     # ========================================================
 
     st.markdown(
-        "## 🚨 Required Actions"
+        "## ðŸš¨ Required Actions"
     )
 
     if (
@@ -658,13 +658,13 @@ if result:
                     if "escalate" in action_lower:
 
                         st.error(
-                            f"🔴 {action_text}"
+                            f"ðŸ”´ {action_text}"
                         )
 
                     elif "breach" in action_lower:
 
                         st.error(
-                            f"🔴 {action_text}"
+                            f"ðŸ”´ {action_text}"
                         )
 
                     elif (
@@ -673,19 +673,19 @@ if result:
                     ):
 
                         st.warning(
-                            f"🟡 {action_text}"
+                            f"ðŸŸ¡ {action_text}"
                         )
 
                     elif "restart" in action_lower:
 
                         st.warning(
-                            f"🟡 {action_text}"
+                            f"ðŸŸ¡ {action_text}"
                         )
 
                     else:
 
                         st.info(
-                            f"🔵 {action_text}"
+                            f"ðŸ”µ {action_text}"
                         )
 
         else:
@@ -709,7 +709,7 @@ if result:
     # ========================================================
 
     with st.expander(
-        "📋 SOP Compliance",
+        "ðŸ“‹ SOP Compliance",
         expanded=False,
     ):
 
@@ -731,7 +731,7 @@ if result:
     # ========================================================
 
     with st.expander(
-        "🔎 Detailed Analysis",
+        "ðŸ”Ž Detailed Analysis",
         expanded=False,
     ):
 
@@ -753,7 +753,7 @@ if result:
     # ========================================================
 
     with st.expander(
-        "🔍 Analysis Execution Trace",
+        "ðŸ” Analysis Execution Trace",
         expanded=False,
     ):
 
@@ -809,7 +809,7 @@ if result:
     # ========================================================
 
     st.markdown(
-        "## 🧾 Audit & Traceability"
+        "## ðŸ§¾ Audit & Traceability"
     )
 
     audit_history = result.get(
@@ -859,7 +859,7 @@ if result:
 
             st.dataframe(
                 audit_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -890,7 +890,7 @@ if result:
     if final_response:
 
         with st.expander(
-            "📝 Final Operational Report",
+            "ðŸ“ Final Operational Report",
             expanded=False,
         ):
 
@@ -904,7 +904,7 @@ if result:
     # ========================================================
 
     with st.expander(
-        "🧾 Session Information",
+        "ðŸ§¾ Session Information",
         expanded=False,
     ):
 

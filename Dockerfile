@@ -28,7 +28,7 @@ RUN apt-get update \
     && ACCEPT_EULA=Y apt-get install -y msodbcsql18 \
     && rm -rf /var/lib/apt/lists/*
 
-
+ENV STREAMLIT_SERVER_FILEWATCHERTYPE=none
 # ============================================================
 # Application directory
 # ============================================================

@@ -1,4 +1,4 @@
-altair==6.2.2
+﻿altair==6.2.2
 faiss-cpu==1.15.0
 
 langchain-community==0.4.2
@@ -24,4 +24,4 @@ scikit-learn==1.9.0
 sentence-transformers==6.0.0
 SQLAlchemy==2.0.52
 streamlit==1.62.0
-torch==2.13.0
+torch==2.13.0
